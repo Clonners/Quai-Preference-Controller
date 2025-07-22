@@ -1,0 +1,21 @@
+[Unit]
+Description=Quai Mining Preference Controller
+After=network.target
+
+[Service]
+# Run as your user:
+User=YOUR-UBUNTU-USER
+
+# Where your script lives:
+WorkingDirectory=/home/YOUR-UBUNTU-USER/quai-control
+
+# The full path to the python in your venv and the script:
+ExecStart=/home/YOUR-UBUNTU-USER/quai-control/venv/bin/python \
+  /home/YOUR-UBUNTU-USER/quai-control/update_pref.py
+
+# Restart automatically if it crashes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

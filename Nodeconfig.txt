@@ -1,0 +1,25 @@
+[Unit]
+Description=Quai Node
+After=network.target
+
+[Service]
+User=YOUR-UBUNTU-USER
+WorkingDirectory=/home/YOUR-UBUNTU-USER/go-quai
+ExecStart=/home/YOUR-UBUNTU-USER/go-quai/build/bin/go-quai start \
+  --node.slices "[0 0]" \
+  --node.quai-coinbases "YOUR-ADDRESS" \
+  --node.qi-coinbases   "YOUR-ADDRESS" \
+  --node.genesis-nonce 23621466532946281564673705261963422 \
+  --node.environment "colosseum" \
+  --rpc.http \
+    --rpc.http-addr 127.0.0.1 \
+    --rpc.http \
+    --rpc.http-api  eth,net,web3,quai,miner \
+  --rpc.ws \
+    --rpc.ws-addr   127.0.0.1 \
+    --rpc.ws \
+    --rpc.ws-api    eth,net,web3,quai,miner
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
