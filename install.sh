@@ -1,32 +1,44 @@
 #!/usr/bin/env bash
 set -e
 
-# Detecta el usuario que corre sudo (o fallback a quien invoque)
-USER="${SUDO_USER:-$(whoami)}"
+# ————— CONFIG —————
 REPO="https://github.com/Clonners/Quai-Preference-Controller.git"
+USER="${SUDO_USER:-$(whoami)}"
 BASE="/home/$USER/quai-controller"
 SERVICE="/etc/systemd/system/quai-pref.service"
+# —————————————————
 
 echo "→ Installing Quai Preference Controller as user: $USER"
 
-# 1) Clona o actualiza el repo
+# 0) Ensure required system packages are present
+echo "→ Checking required system packages..."
+apt-get update -qq
+for pkg in git python3-venv; do
+  if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+    echo "   • $pkg not found — installing..."
+    apt-get install -y "$pkg"
+  fi
+done
+
+# 1) Clone or update the repository
 if [ ! -d "$BASE" ]; then
   echo "→ Cloning repository into $BASE"
   sudo -u "$USER" git clone "$REPO" "$BASE"
 else
-  echo "→ Updating repository in $BASE"
+  echo "→ Repository already exists at $BASE — pulling latest changes"
   cd "$BASE"
   sudo -u "$USER" git pull
 fi
 
-# 2) Prepara el virtualenv e instala deps
-echo "→ Setting up Python virtualenv"
+# 2) Set up Python virtualenv and install dependencies
+echo "→ Setting up Python virtual environment"
 cd "$BASE"
 sudo -u "$USER" python3 -m venv venv
-# instala sin afectar al sistema
+
+echo "→ Installing Python packages (aiohttp, websockets)"
 sudo -u "$USER" bash -c "source venv/bin/activate && pip install --upgrade pip aiohttp websockets"
 
-# 3) Genera el servicio systemd
+# 3) Write the systemd service unit
 echo "→ Writing systemd unit file to $SERVICE"
 cat << EOF | sudo tee "$SERVICE" >/dev/null
 [Unit]
@@ -44,11 +56,11 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# 4) Habilita y arranca el servicio
-echo "→ Enabling and starting quai-pref.service"
+# 4) Reload systemd and start the service
+echo "→ Reloading systemd, enabling and starting service"
 sudo systemctl daemon-reload
 sudo systemctl enable quai-pref.service
 sudo systemctl restart  quai-pref.service
 
 echo "✅ Installation complete!"
-echo "   To view logs: journalctl -u quai-pref.service -f"
+echo "   To view live logs: journalctl -u quai-pref.service -f"
