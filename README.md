@@ -8,8 +8,11 @@ sudo nano /etc/systemd/system/quai.service
 [3] Reload and start the service:
 
 sudo systemctl daemon-reload
+
 sudo systemctl enable quai
+
 sudo systemctl start  quai
+
 sudo systemctl status quai
 
 [4] Prepare the Python environment, why Python? your control script is written in Python, you need an isolated (virtual) environment with only the libraries you use.
