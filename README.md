@@ -5,7 +5,7 @@ sudo nano /etc/systemd/system/quai.service
 
 [2] Paste inside Nodeconfig.txt data and save and exit (Ctrl+O, Enter, Ctrl+X).
 
-[3] Reload and start the service
+[3] Reload and start the service:
 
 sudo systemctl daemon-reload
 sudo systemctl enable quai
