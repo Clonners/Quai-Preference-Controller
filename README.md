@@ -44,7 +44,7 @@ and add it to systemd
 
 sudo nano /etc/systemd/system/quai-pref.service
 
-Paste quai mining preference controller.txt inside
+Paste quai-mining-preference-controller.txt inside
 Save and exit (Ctrl+O, Enter, Ctrl+X).
 
 Reload systemd, enable & start the service
