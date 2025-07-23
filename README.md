@@ -9,7 +9,7 @@ https://docs.qu.ai/guides/client/stratum
 
 sudo nano /etc/systemd/system/quai.service
 
-[2] Paste inside Nodeconfig.txt data, replace ubuntu user, and quai and qi address, save and exit (Ctrl+O, Enter, Ctrl+X).
+[2] Paste inside Nodeconfig.txt data, REPLACE UBUNTU USER, and QUAI and QI ADDRESS, save and exit (Ctrl+O, Enter, Ctrl+X).
 
 [3] Reload and start the service:
 
