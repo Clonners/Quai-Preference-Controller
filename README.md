@@ -6,10 +6,11 @@ sudo nano /etc/systemd/system/quai.service
 [2] Paste inside Nodeconfig.txt data and save and exit (Ctrl+O, Enter, Ctrl+X).
 
 [3] Reload and start the service
-sudo systemctl daemon-reload        #Detect the new file
-sudo systemctl enable quai              #Activate to start at boot
-sudo systemctl start  quai                 #Start the node now
-sudo systemctl status quai                #Make sure it is active
+
+sudo systemctl daemon-reload
+sudo systemctl enable quai
+sudo systemctl start  quai
+sudo systemctl status quai
 
 [4] Prepare the Python environment, why Python? your control script is written in Python, you need an isolated (virtual) environment with only the libraries you use.
 
