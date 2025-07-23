@@ -1,3 +1,9 @@
+PREREQUISITES: QUAI NODE ALREADY INSTALLED, STRATUM ALREADY INSTALLEDm, IF YOU DONT HAVE IT GUIDE BELOW.
+
+https://docs.qu.ai/guides/client/node
+
+https://docs.qu.ai/guides/client/stratum
+
 [1] Open the systemd service file, this file tells Ubuntu how to automatically start your node when the system boots up.
 (do CTRL+ALT+T for open terminal in ubuntu desktop)
 
