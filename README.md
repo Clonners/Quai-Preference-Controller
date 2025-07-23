@@ -23,7 +23,7 @@ sudo systemctl status quai
 
 [4] Run instalation:
 
-apt install curl
+sudo apt install curl
 
 curl -fsSL https://raw.githubusercontent.com/Clonners/Quai-Preference-Controller/main/install.sh \
   | sed 's/\r$//' \
