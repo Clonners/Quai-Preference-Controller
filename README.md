@@ -24,7 +24,9 @@ sudo apt install -y python3 python3-venv python3-pip
 Create and activate virtual environment
 
 mkdir -p ~/quai-control
+
 python3 -m venv ~/quai-control/venv
+
 source ~/quai-control/venv/bin/activate
 
 Install necessary libraries
@@ -34,6 +36,7 @@ pip install aiohttp websockets
 [5] Write the control script
 
 sudo nano ~/quai-control/update_pref.py
+
 Paste python-script text inside
 Save and exit (Ctrl+O, Enter, Ctrl+X).
 
@@ -47,8 +50,11 @@ Save and exit (Ctrl+O, Enter, Ctrl+X).
 Reload systemd, enable & start the service
 
 sudo systemctl daemon-reload                                              #Detect the new file
+
 sudo systemctl enable quai-pref.service                                 #Activate to start at boot
+
 sudo systemctl start  quai-pref.service                                   #Start the node now
+
 sudo systemctl status quai-pref.service                                   #Make sure it is active
 
 You should see it active (running). To watch its logs in real time:
