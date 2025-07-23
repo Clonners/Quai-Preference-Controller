@@ -25,9 +25,7 @@ sudo systemctl status quai
 
 sudo apt install curl
 
-curl -fsSL https://raw.githubusercontent.com/Clonners/Quai-Preference-Controller/main/install.sh \
-  | sed 's/\r$//' \
-  | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Clonners/Quai-Preference-Controller/main/install.sh \ | sed 's/\r$//' \ | sudo bash
 
 You should see it active (running). To watch its logs in real time:
 journalctl -u quai-pref.service -f
