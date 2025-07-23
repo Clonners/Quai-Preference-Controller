@@ -3,7 +3,7 @@
 
 sudo nano /etc/systemd/system/quai.service
 
-[2] Paste inside Nodeconfig.txt data and save and exit (Ctrl+O, Enter, Ctrl+X).
+[2] Paste inside Nodeconfig.txt data, replace ubuntu user, and quai and qi address, save and exit (Ctrl+O, Enter, Ctrl+X).
 
 [3] Reload and start the service:
 
@@ -15,47 +15,11 @@ sudo systemctl start  quai
 
 sudo systemctl status quai
 
-[4] Prepare the Python environment, why Python? your control script is written in Python, you need an isolated (virtual) environment with only the libraries you use.
+[4] Run instalation:
 
-Install Python and pip
+curl -fsSL https://raw.githubusercontent.com/Clonners/Quai-Preference-Controller/main/install.sh \
+  | sudo bash
 
-sudo apt install -y python3 python3-venv python3-pip
-
-Create and activate virtual environment
-
-mkdir -p ~/quai-control
-
-python3 -m venv ~/quai-control/venv
-
-source ~/quai-control/venv/bin/activate
-
-Install necessary libraries
-
-pip install aiohttp websockets
-
-[5] Write the control script
-
-sudo nano ~/quai-control/update_pref.py
-
-Paste python-script text inside
-Save and exit (Ctrl+O, Enter, Ctrl+X).
-
-and add it to systemd
-
-sudo nano /etc/systemd/system/quai-pref.service
-
-Paste quai-mining-preference-controller.txt inside
-Save and exit (Ctrl+O, Enter, Ctrl+X).
-
-Reload systemd, enable & start the service
-
-sudo systemctl daemon-reload                                              #Detect the new file
-
-sudo systemctl enable quai-pref.service                                 #Activate to start at boot
-
-sudo systemctl start  quai-pref.service                                   #Start the node now
-
-sudo systemctl status quai-pref.service                                   #Make sure it is active
 
 You should see it active (running). To watch its logs in real time:
 journalctl -u quai-pref.service -f
