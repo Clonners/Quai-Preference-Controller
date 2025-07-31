@@ -22,7 +22,7 @@ async def rpc_call(session, method, params):
 async def process_block(hdr, session, state):
     """
     Calcula reward_Qi, reward_Quai, k_Qi, k_Quai y ajusta miner preference.
-    state = {"diff_ema", "k_quai", "last_pref"}
+    state = {"last_pref"}
     """
     # 1) Extraer número de bloque y dificultad real
     try:
@@ -65,7 +65,7 @@ async def process_block(hdr, session, state):
 
 async def run_controller():
     """Mantiene la suscripción WS y el bucle principal."""
-    state = {"diff_ema": None, "k_quai": 1.0, "last_pref": None}
+    state = {"last_pref": None}
     backoff = 1
 
     async with aiohttp.ClientSession() as session:
@@ -101,3 +101,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
