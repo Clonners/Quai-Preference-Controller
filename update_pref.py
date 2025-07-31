@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import asyncio, json, time, sys, math, logging
 import aiohttp, websockets
@@ -20,47 +21,56 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("quai-pref")
 
 async def rpc_call(session, method, params):
-    payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    payload = {
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params,
+        "id": 1
+    }
     async with session.post(RPC_HTTP, json=payload) as r:
-        return (await r.json()).get("result")
+        result = await r.json()
+        return result.get("result")
 
 async def process_block(hdr, session, state):
     """
-    Calcula reward_Qi, reward_Quai, k_Qi, k_Quai, y ajusta setMinerPreference.
-    state = {diff_ema, k_quai, last_pref}
+    Calcula reward_Qi, reward_Quai, k_Qi, k_Quai y ajusta miner preference.
+    state = {"diff_ema", "k_quai", "last_pref"}
     """
-    # 1) Extraer número de bloque y dificultad REAL del bloque
-    blk   = hdr["woHeader"]["number"]
-    diff  = int(hdr["woBody"]["header"]["difficulty"], 16)
+    # 1) Extraer número de bloque y dificultad real del bloque
+    blk_hex  = hdr.get("number")
+    diff_hex = hdr.get("difficulty")
+    try:
+        blk  = int(blk_hex, 16)
+        diff = int(diff_hex, 16)
+    except Exception:
+        log.warning("No pude parsear number/difficulty: %s", hdr)
+        return
 
-    # 2) EMA de difficulty (targetDifficulty)
+    # 2) EMA de difficulty
     if state["diff_ema"] is None:
         state["diff_ema"] = diff
     else:
         state["diff_ema"] += ALPHA_DIFF * (diff - state["diff_ema"])
     d_star = state["diff_ema"]
 
-    # 3) Actualizar k_Quai según la tasa EMA de block reward
+    # 3) Actualizar k_Quai según EMA de block reward
     k_quai = state["k_quai"] or 1.0
-    k_quai += ALPHA_RATE * ((math.log2(d_star) if d_star>0 else 0) - k_quai)
+    target_quai = math.log2(d_star) if d_star > 0 else 0
+    k_quai += ALPHA_RATE * (target_quai - k_quai)
     state["k_quai"] = k_quai
 
     # 4) Calcular k_Qi con esquema de “doubling”
-    blk_num   = int(blk, 16)
-    doublings = blk_num // DOUBLING_PERIOD
-    k_qi      = BASE_K_QI * (2 ** doublings)
+    doublings = blk // DOUBLING_PERIOD
+    k_qi = BASE_K_QI * (2 ** doublings)
 
-    # 5) Reward Qi por bloque (tokens) → Wei  
-    #    reward_Qi = k_qi × blockDifficulty
+    # 5) Reward Qi por bloque (tokens) → Wei
     qi_wei = int(k_qi * diff * 10**18)
 
-    # 6) Reward Quai por bloque (tokens) → Wei  
-    #    reward_Quai = k_quai × log2(blockDifficulty)
+    # 6) Reward Quai por bloque (tokens) → Wei
     quai_wei = int(k_quai * math.log2(diff) * 10**18)
 
     # 7) Precio on-chain Qi→Quai: Wei de Quai por Wei de Qi
-    price_hex = await rpc_call(session, "quai_qiToQuai",
-                               ["0xde0b6b3a7640000", "latest"])
+    price_hex = await rpc_call(session, "quai_qiToQuai", ["0xde0b6b3a7640000", "latest"])
     price_wei = int(price_hex, 16) if price_hex else 0
 
     # 8) Convierte recompensa Qi a Wei de Quai
@@ -68,9 +78,9 @@ async def process_block(hdr, session, state):
 
     # 9) Fracción óptima Qi/(Qi+Quai)
     total = qi_to_quai_wei + quai_wei
-    pref  = (qi_to_quai_wei / total) if total > 0 else 0.0
+    pref = (qi_to_quai_wei / total) if total > 0 else 0.0
 
-    # 10) Si cambia > umbral, ajustar preferencia
+    # 10) Ajustar preferencia si cambia más de MIN_PREF_CHANGE
     if state["last_pref"] is None or abs(pref - state["last_pref"]) > MIN_PREF_CHANGE:
         await rpc_call(session, "setMinerPreference", [pref])
         log.info(
@@ -88,11 +98,12 @@ async def run_controller():
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                # Conexión WebSocket a newHeads
                 async with websockets.connect(RPC_WS) as ws:
                     await ws.send(json.dumps({
-                        "jsonrpc":"2.0", "method":"eth_subscribe",
-                        "params":["newHeads"], "id":1
+                        "jsonrpc": "2.0",
+                        "method": "eth_subscribe",
+                        "params": ["newHeads"],
+                        "id": 1
                     }))
                     await ws.recv()  # ack
                     backoff = INITIAL_BACKOFF
@@ -100,8 +111,9 @@ async def run_controller():
                     async for raw in ws:
                         msg = json.loads(raw)
                         hdr = msg.get("params", {}).get("result", {})
-                        if "woBody" in hdr and "woHeader" in hdr:
+                        if "number" in hdr and "difficulty" in hdr:
                             await process_block(hdr, session, state)
+
             except Exception as e:
                 log.warning(f"WS error: {e}; reintentando en {backoff}s…")
                 await asyncio.sleep(backoff)
