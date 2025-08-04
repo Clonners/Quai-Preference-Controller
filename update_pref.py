@@ -9,7 +9,7 @@ import websockets
 
 # ————— CONFIG —————
 RPC_WS           = "ws://127.0.0.1:8001"    # WS para newHeads
-RPC_HTTP_EVM     = "http://127.0.0.1:9001"  # RPC EVM para setMinerPreference
+RPC_HTTP_EVM     = "http://127.0.0.1:9001"  # RPC EVM para miner_setMinerPreference
 RPC_HTTP_ZONE    = "http://127.0.0.1:9200"  # RPC Zona para exchangeRate + kQuaiDiscount
 BASE_K_QI        = 1 / (8 * 10**9)         # k_Qi constante (lineal)
 ALPHA_RATE_EMA   = 0.001                   # paso para EMA de effective_rate
@@ -108,9 +108,9 @@ async def process_block(hdr, session):
 
     # 9) Aplica solo si varió más de 0.0001
     if abs(pref - last) > 1e-4:
-        log.info(f"Pref changed {last} → {pref}, calling setMinerPreference")
+        log.info(f"Pref changed {last} → {pref}, calling miner_setMinerPreference")
         await rpc_call(session, RPC_HTTP_EVM,
-                       "setMinerPreference", [pref])
+                       "miner_setMinerPreference", [pref])
         state["last_pref"] = pref
     else:
         log.info(f"Pref change {last} → {pref} below threshold, skipping")
