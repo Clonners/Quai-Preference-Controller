@@ -1,164 +1,137 @@
 #!/usr/bin/env python3
 import asyncio
 import json
-import sys
 import logging
 
 import aiohttp
+import numpy as np
 import websockets
 
-# ————— CONFIG —————
-RPC_WS           = "ws://127.0.0.1:8001"    # WS para newHeads
-RPC_HTTP_EVM     = "http://127.0.0.1:9001"  # RPC EVM para miner_setMinerPreference
-RPC_HTTP_ZONE    = "http://127.0.0.1:9200"  # RPC Zona para exchangeRate + kQuaiDiscount
-BASE_K_QI        = 1 / (8 * 10**9)         # k_Qi constante (lineal)
-ALPHA_RATE_EMA   = 0.001                   # paso para EMA de effective_rate
-DELTA            = 0.01                    # dead-band ±1 %
-INITIAL_BACKOFF  = 1
-MAX_BACKOFF      = 60
-# ——————————————————
+# ————— CONFIG HISTÓRICO —————
+RPC_HTTP_ZONE   = "http://127.0.0.1:9200"     # RPC ZONA para exchangeRate
+HIST_BLOCKS     = 600_000                     # bloques atrás a muestrear
+SAMPLE_SIZE     = 10_000                      # cuántas muestras tomar
+# ————— CONFIG CONTROLADOR —————
+RPC_WS          = "ws://127.0.0.1:8001"       # WS para newHeads
+RPC_HTTP_EVM    = "http://127.0.0.1:9001"     # JSON-RPC EVM para miner_setMinerPreference
+DELTA           = 0.01                        # dead-band ±1 %
+INITIAL_BACKOFF = 1
+MAX_BACKOFF     = 60
+# ————————————————————————————
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-5s %(message)s",
     datefmt="%H:%M:%S"
 )
-log = logging.getLogger(__name__)
+log = logging.getLogger("quai-controller")
 
 async def rpc_call(session, url, method, params):
-    """Llama al RPC y devuelve el campo 'result'."""
-    log.info(f"RPC CALL → {method} @ {url} params={params}")
-    try:
-        payload = {"jsonrpc":"2.0","method":method,"params":params,"id":1}
-        async with session.post(url, json=payload) as resp:
-            data = await resp.json()
-            result = data.get("result")
-            log.info(f"RPC RESULT ← {method}: {result}")
-            return result
-    except Exception as e:
-        log.warning(f"RPC error {method}@{url}: {e}")
-        return None
+    payload = {"jsonrpc":"2.0","method":method,"params":params,"id":1}
+    async with session.post(url, json=payload) as resp:
+        data = await resp.json()
+        return data.get("result")
+
+async def get_latest_block_number(session):
+    res = await rpc_call(session, RPC_HTTP_ZONE, "quai_getBlockByNumber", ["latest", False])
+    hdr = res.get("header", {})
+    bn = hdr.get("number")
+    if isinstance(bn, list):
+        bn = bn[0]
+    return int(bn, 16)
+
+async def fetch_historical_rates(session):
+    latest = await get_latest_block_number(session)
+    step   = max(1, HIST_BLOCKS // SAMPLE_SIZE)
+    blocks = range(latest - HIST_BLOCKS + 1, latest + 1, step)
+    rates = []
+    for b in blocks:
+        res = await rpc_call(session, RPC_HTTP_ZONE, "quai_getBlockByNumber", [hex(b), False])
+        hdr = res.get("header", {})
+        er = int(hdr.get("exchangeRate", "0x0"), 16)
+        rates.append(er / 1e18)
+    return np.array(rates)
+
+def compute_dominant_period(rates):
+    centered = rates - rates.mean()
+    freqs    = np.fft.rfftfreq(len(rates), d=1)
+    fft_vals = np.fft.rfft(centered)
+    power    = np.abs(fft_vals)**2
+    idx      = np.argmax(power[1:]) + 1
+    return 1 / freqs[idx]
+
+# estado global
+state = {"rate_ema": None, "last_pref": None}
+ALPHA_RATE_EMA = None  # se define tras detección de periodo
 
 async def process_block(hdr, session):
-    blk_num = int(hdr["woHeader"]["number"], 16)
-    log.info(f"--- Processing block {blk_num} ---")
+    blk = int(hdr["woHeader"]["number"], 16)
+    # 1) leer exchangeRate
+    zone = await rpc_call(session, RPC_HTTP_ZONE, "quai_getBlockByNumber", ["latest", False])
+    base = int(zone["header"].get("exchangeRate", "0x0"), 16)
 
-    # 1) Dificultad del bloque
-    diff = int(hdr["woBody"]["header"]["minerDifficulty"], 16)
-    log.info(f"Block difficulty: {diff}")
-
-    # 2) Recompensa en Qi (en Wei)
-    qi_wei = int(BASE_K_QI * diff * 10**18)
-    log.info(f"Qi reward (wei): {qi_wei}")
-
-    # 3) Obtiene del bloque zona:
-    log.info("Fetching zone block data…")
-    zone = await rpc_call(session, RPC_HTTP_ZONE,
-                          "quai_getBlockByNumber", ["latest", False])
-    if not zone:
-        log.error("No zone data, skipping block")
-        return
-    zhdr = zone.get("header", {})
-    base_rate_wei = int(zhdr.get("exchangeRate", "0x0"), 16)
-    discount_wei  = int(zhdr.get("kQuaiDiscount", "0x0"), 16)
-    log.info(f"Base exchangeRate (wei): {base_rate_wei}")
-    log.info(f"kQuaiDiscount (wei): {discount_wei}")
-
-    # 4) Tasa efectiva Qi→Quai
-    effective_rate_wei = base_rate_wei + discount_wei
-    log.info(f"Effective rate (wei): {effective_rate_wei}")
-
-    # 5) EMA de effective_rate
-    if state.get("rate_ema") is None:
-        state["rate_ema"] = effective_rate_wei
-        log.info(f"Initialized EMA with {effective_rate_wei}")
+    # 2) actualizar EMA
+    if state["rate_ema"] is None:
+        state["rate_ema"] = base
     else:
-        before_ema = state["rate_ema"]
-        state["rate_ema"] += ALPHA_RATE_EMA * (
-            effective_rate_wei - state["rate_ema"]
-        )
-        log.info(f"Updated EMA: {before_ema} → {state['rate_ema']}")
+        state["rate_ema"] += ALPHA_RATE_EMA * (base - state["rate_ema"])
 
-    # 6) Dead-band ±1 % alrededor de EMA
     lower = state["rate_ema"] * (1 - DELTA)
     upper = state["rate_ema"] * (1 + DELTA)
-    log.info(f"Dead-band lower={lower}, upper={upper}")
 
-    # 7) Cálculo de recompensas en Quai (en Wei)
-    direct_quai_wei = qi_wei * base_rate_wei      // 10**18
-    qi_to_quai_wei  = qi_wei * effective_rate_wei // 10**18
-    log.info(f"Direct Quai reward (wei): {direct_quai_wei}")
-    log.info(f"Qi→Quai reward (wei): {qi_to_quai_wei}")
-
-    # 8) Decidir preferencia continua sólo si sale de la dead-band
-    last = state.get("last_pref", 0.5)
-    if effective_rate_wei < lower or effective_rate_wei > upper:
-        log.info("Effective rate outside dead-band, recalculating pref")
-        total = direct_quai_wei + qi_to_quai_wei
-        if total > 0:
-            # invertido: minas Qi si direct_quai_wei > qi_to_quai_wei
-            pref = direct_quai_wei / total
-            log.info(f"Calculated pref: {pref}")
-        else:
-            pref = last
-            log.warning("Total reward zero, using last pref")
+    last = state["last_pref"]
+    if base < lower:
+        pref = 1.0   # Qi barato → mina Qi
+    elif base > upper:
+        pref = 0.0   # Qi caro   → mina Quai
     else:
-        pref = last
-        log.info("Effective rate within dead-band, keeping last pref")
+        pref = last if last is not None else 0.5
 
-    # 9) Aplica solo si varió más de 0.0001
-    if abs(pref - last) > 1e-4:
-        log.info(f"Pref changed {last} → {pref}, calling miner_setMinerPreference")
-        await rpc_call(session, RPC_HTTP_EVM,
-                       "miner_setMinerPreference", [pref])
+    if last is None or abs(pref - last) > 1e-4:
+        await rpc_call(session, RPC_HTTP_EVM, "miner_setMinerPreference", [pref])
         state["last_pref"] = pref
-    else:
-        log.info(f"Pref change {last} → {pref} below threshold, skipping")
+        log.info(f"[Blk {blk}] rate={base} EMA={int(state['rate_ema'])} pref={pref:.3f}")
 
 async def run_controller():
-    global state
-    state = {"rate_ema": None, "last_pref": 0.5}
-    backoff = INITIAL_BACKOFF
+    global ALPHA_RATE_EMA
+    # — 1) Detección del período dominante —
+    async with aiohttp.ClientSession() as sess:
+        log.info("Recolectando históricos para FFT…")
+        rates  = await fetch_historical_rates(sess)
+        period = compute_dominant_period(rates)
+        ALPHA_RATE_EMA = 2 / (period + 1)
+        log.info(f"Período dominante ≈ {period:.0f} bloques → α={ALPHA_RATE_EMA:.6e}")
 
+    # — 2) Controlador en tiempo real —
+    backoff = INITIAL_BACKOFF
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                log.info(f"Connecting to WS → {RPC_WS}")
+                log.info(f"Conectando WS → {RPC_WS}")
                 async with websockets.connect(RPC_WS) as ws:
-                    log.info("WebSocket connected, sending subscribe…")
                     await ws.send(json.dumps({
                         "jsonrpc":"2.0",
                         "method":"eth_subscribe",
                         "params":["newHeads"],
                         "id":1
                     }))
-                    try:
-                        msg = await asyncio.wait_for(ws.recv(), timeout=5)
-                        log.info(f"Subscription ACK received: {msg}")
-                    except asyncio.TimeoutError:
-                        log.error("Timeout waiting for subscription ACK")
-                        return
-
+                    await ws.recv()  # ack
                     backoff = INITIAL_BACKOFF
+
                     async for raw in ws:
-                        log.info(f"New WS message: {raw[:200]}")
                         msg = json.loads(raw)
                         hdr = msg.get("params", {}).get("result", {})
                         if "woBody" in hdr and "woHeader" in hdr:
                             await process_block(hdr, session)
 
             except Exception as e:
-                log.warning(f"WS error: {e}; retry in {backoff}s…")
+                log.warning(f"WS error: {e}; retry en {backoff}s")
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
+                backoff = min(backoff*2, MAX_BACKOFF)
 
-def main():
+if __name__ == "__main__":
     try:
         asyncio.run(run_controller())
     except KeyboardInterrupt:
-        log.info("🛑 Terminating on user interrupt.")
-        sys.exit(0)
-
-if __name__ == "__main__":
-    main()
+        log.info("Interrumpido por usuario, saliendo.")
 
